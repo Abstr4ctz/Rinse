@@ -62,12 +62,13 @@ DebuffColor["Magic"]   = { r = 0.2, g = 0.6, b = 1.0, hex = "|cff3399FF" }
 DebuffColor["Curse"]   = { r = 0.6, g = 0.0, b = 1.0, hex = "|cff9900FF" }
 DebuffColor["Disease"] = { r = 0.6, g = 0.4, b = 0.0, hex = "|cff996600" }
 DebuffColor["Poison"]  = { r = 0.0, g = 0.6, b = 0.0, hex = "|cff009900" }
+DebuffColor["Snare"]   = { r = 0.9, g = 0.8, b = 0.2, hex = "|cffE5CC33" }
 
 local BLUE = DebuffColor["Magic"].hex
 
 -- Spells that remove stuff, for each class
 local Spells = {}
-Spells["PALADIN"] = { Magic = {"Cleanse"}, Poison = {"Cleanse", "Purify"}, Disease = {"Cleanse", "Purify"} }
+Spells["PALADIN"] = { Magic = {"Cleanse"}, Poison = {"Cleanse", "Purify"}, Disease = {"Cleanse", "Purify"}, Snare = {"Blessing of Freedom"} }
 Spells["DRUID"]   = { Curse = {"Remove Curse"}, Poison = {"Abolish Poison", "Cure Poison"} }
 Spells["PRIEST"]  = { Magic = {"Dispel Magic"}, Disease = {"Abolish Disease", "Cure Disease"} }
 Spells["SHAMAN"]  = { Poison = {"Cure Poison"}, Disease = {"Cure Disease"} }
@@ -130,6 +131,7 @@ Blacklist["Curse"] = {}
 Blacklist["Magic"] = {}
 Blacklist["Disease"] = {}
 Blacklist["Poison"] = {}
+Blacklist["Snare"] = {}
 ----------------------------------------------------
 Blacklist["Curse"]["Curse of Recklessness"] = true
 Blacklist["Curse"]["Delusions of Jin'do"] = true
@@ -182,6 +184,14 @@ ClassBlacklist["ROGUE"]["Moroes Curse"] = true
 ClassBlacklist["ROGUE"]["Curse of Manascale"] = true
 ----------------------------------------------------
 ClassBlacklist["WARLOCK"]["Rift Entanglement"] = true
+----------------------------------------------------
+
+-- Spells negated by Blessing of Freedom
+local SnareDebuffs = {}
+SnareDebuffs["Surge of Mana"] = true
+SnareDebuffs["Web"] = true
+SnareDebuffs["Mind Flay"] = true
+----------------------------------------------------
 
 local function wipe(array)
     if type(array) ~= "table" then
@@ -869,6 +879,10 @@ local function GetDebuffInfo(unit, i)
 end
 
 local function SaveDebuffInfo(unit, debuffIndex, i, class, debuffType, debuffName, texture, applications)
+    if SnareDebuffs[debuffName] then
+        debuffType = "Snare"
+    end
+
     if SpellNameToRemove[debuffType] and not (Blacklist[debuffType] and Blacklist[debuffType][debuffName]) and
         not (ClassBlacklist[class] and ClassBlacklist[class][debuffName]) and not HasAbolish(unit, debuffType) then
         Debuffs[debuffIndex].name = debuffName or ""
