@@ -934,7 +934,7 @@ function RinseFrame_OnUpdate(elapsed)
             if not texture then
                 break
             end
-            if debuffType and debuffName and class then
+            if debuffName and class and (debuffType or SnareDebuffs[debuffName]) then
                 if SaveDebuffInfo("target", debuffIndex, i, class, debuffType, debuffName, texture, applications) then
                     debuffIndex = debuffIndex + 1
                 end
@@ -953,7 +953,7 @@ function RinseFrame_OnUpdate(elapsed)
                 if not texture then
                     break
                 end
-                if debuffType and debuffName and class then
+                if debuffName and class and (debuffType or SnareDebuffs[debuffName]) then
                     if SaveDebuffInfo(unit, debuffIndex, i, class, debuffType, debuffName, texture, applications) then
                         debuffIndex = debuffIndex + 1
                     end
