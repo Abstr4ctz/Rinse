@@ -1,5 +1,6 @@
 local _, playerClass = UnitClass("player")
 local superwow = SUPERWOW_VERSION
+local unitxp = pcall(UnitXP, "nop")
 local getn = table.getn
 local UnitExists = UnitExists
 local UnitIsFriend = UnitIsFriend
@@ -34,8 +35,8 @@ local Backdrop = {
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true,
     tileSize = 16,
-	edgeSize = 16,
-	insets = { left = 5, right = 5, top = 5, bottom = 5 },
+    edgeSize = 16,
+    insets = { left = 5, right = 5, top = 5, bottom = 5 },
 }
 
 -- Frames that should scale together
@@ -57,7 +58,7 @@ ClassColors["HUNTER"]  = "|cffabd473"
 ClassColors["SHAMAN"]  = "|cff0070de"
 
 local DebuffColor = {}
-DebuffColor["none"]	   = { r = 0.8, g = 0.0, b = 0.0, hex = "|cffCC0000" }
+DebuffColor["none"]    = { r = 0.8, g = 0.0, b = 0.0, hex = "|cffCC0000" }
 DebuffColor["Magic"]   = { r = 0.2, g = 0.6, b = 1.0, hex = "|cff3399FF" }
 DebuffColor["Curse"]   = { r = 0.6, g = 0.0, b = 1.0, hex = "|cff9900FF" }
 DebuffColor["Disease"] = { r = 0.6, g = 0.4, b = 0.0, hex = "|cff996600" }
@@ -80,6 +81,9 @@ Spells["WARLOCK"] = { Magic = {"Devour Magic"} }
 local SpellNameToRemove = {}
 -- SpellSlotForName[spellName] = spellSlot
 local SpellSlotForName = {}
+
+local lastSpellName = nil
+local lastButton = nil
 
 -- Number of buttons shown, can be overridden by saved variables
 local BUTTONS_MAX = 5
@@ -136,6 +140,7 @@ Blacklist["Snare"] = {}
 Blacklist["Curse"]["Curse of Recklessness"] = true
 Blacklist["Curse"]["Delusions of Jin'do"] = true
 Blacklist["Curse"]["Dread of Outland"] = true
+Blacklist["Curse"]["Curse of Legion"] = true
 ----------------------------------------------------
 Blacklist["Magic"]["Dreamless Sleep"] = true
 Blacklist["Magic"]["Greater Dreamless Sleep"] = true
@@ -220,7 +225,11 @@ end
 
 local function ChatMessage(msg)
     if RINSE_CONFIG.PRINT then
-        ChatFrame1:AddMessage(BLUE.."[Rinse]|r "..(tostring(msg)))
+        if RINSE_CONFIG.MSBT and MikSBT then
+            MikSBT.DisplayMessage(msg, MikSBT.DISPLAYTYPE_NOTIFICATION, false, 255, 255, 255)
+        else
+            ChatFrame1:AddMessage(BLUE.."[Rinse]|r "..(tostring(msg)))
+        end
     end
 end
 
@@ -264,7 +273,7 @@ local function HasAbolish(unit, debuffType)
     if not (debuffType == "Poison" or debuffType == "Disease") then
         return
     end
-	local i = 1
+    local i = 1
     local buff
     local icon
     if debuffType == "Poison" then
@@ -272,13 +281,13 @@ local function HasAbolish(unit, debuffType)
     elseif debuffType == "Disease" then
         icon = "Interface\\Icons\\Spell_Nature_NullifyDisease"
     end
-	repeat
-		buff = UnitBuff(unit, i)
-		if buff == icon then
-			return 1
-		end
-		i = i + 1
-	until not buff
+    repeat
+        buff = UnitBuff(unit, i)
+        if buff == icon then
+            return 1
+        end
+        i = i + 1
+    until not buff
 end
 
 local function InRange(unit, spell)
@@ -290,15 +299,17 @@ local function InRange(unit, spell)
             elseif result == 0 then
                 return false
             end
-            -- ignore result == -1
+            -- Ignore result == -1
         end
-
-        if superwow then
+        if unitxp and UnitIsVisible(unit) then
+            -- Accounts for true reach. A tauren can dispell a male tauren at 38y!
+            return UnitXP("distanceBetween", "player", unit) < 30
+        elseif superwow then
             local myX, myY, myZ = UnitPosition("player")
             local uX, uY, uZ = UnitPosition(unit)
-            -- Not sure why 1089, but seems to be accurate for 30yd range
-            -- spell from my testing
-            return math.abs((myX - uX)^2 + (myY - uY)^2 + (myZ - uZ)^2) <= 1089
+            local dx, dy, dz = uX - myX, uY - myY, uZ - myZ
+            -- sqrt(1089) == 33, smallest max dispell range not accounting for true melee reach
+            return ((dx * dx) + (dy * dy) + (dz * dz)) <= 1089
         else
             -- Not as accurate
             return CheckInteractDistance(unit, 4)
@@ -490,31 +501,31 @@ info.func = AddGroupOrClass
 
 local function ClassMenu()
     if UIDROPDOWNMENU_MENU_LEVEL == 1 then
-        info.text = ClassColors["WARRIOR"] .. "Warriors"
+        info.text = ClassColors["WARRIOR"].."Warriors"
         info.value = "WARRIOR"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["DRUID"] .. "Druids"
+        info.text = ClassColors["DRUID"].."Druids"
         info.value = "DRUID"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["PALADIN"] .. "Paladins"
+        info.text = ClassColors["PALADIN"].."Paladins"
         info.value = "PALADIN"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["WARLOCK"] .. "Warlocks"
+        info.text = ClassColors["WARLOCK"].."Warlocks"
         info.value = "WARLOCK"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["MAGE"] .. "Mages"
+        info.text = ClassColors["MAGE"].."Mages"
         info.value = "MAGE"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["PRIEST"] .. "Priests"
+        info.text = ClassColors["PRIEST"].."Priests"
         info.value = "PRIEST"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["ROGUE"] .. "Rogues"
+        info.text = ClassColors["ROGUE"].."Rogues"
         info.value = "ROGUE"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["HUNTER"] .. "Hunters"
+        info.text = ClassColors["HUNTER"].."Hunters"
         info.value = "HUNTER"
         UIDropDownMenu_AddButton(info)
-        info.text = ClassColors["SHAMAN"] .. "Shamans"
+        info.text = ClassColors["SHAMAN"].."Shamans"
         info.value = "SHAMAN"
         UIDropDownMenu_AddButton(info)
     end
@@ -620,6 +631,16 @@ function RinseFrameOptions_OnClick()
     end
 end
 
+local function DisableCheckBox(checkBox)
+    OptionsFrame_DisableCheckBox(checkBox)
+    getglobal(checkBox:GetName().."TooltipPreserve"):Show()
+end
+
+local function EnableCheckBox(checkBox)
+    OptionsFrame_EnableCheckBox(checkBox)
+    getglobal(checkBox:GetName().."TooltipPreserve"):Hide()
+end
+
 function Rinse_ToggleWyvernSting()
     RINSE_CONFIG.WYVERN_STING = not RINSE_CONFIG.WYVERN_STING
     Blacklist["Poison"]["Wyvern Sting"] = not RINSE_CONFIG.WYVERN_STING
@@ -632,6 +653,15 @@ end
 
 function Rinse_TogglePrint()
     RINSE_CONFIG.PRINT = not RINSE_CONFIG.PRINT
+    if RINSE_CONFIG.PRINT and MikSBT then
+        EnableCheckBox(RinseOptionsFrameMSBT)
+    else
+        DisableCheckBox(RinseOptionsFrameMSBT)
+    end
+end
+
+function Rinse_ToggleMSBT()
+    RINSE_CONFIG.MSBT = not RINSE_CONFIG.MSBT
 end
 
 function Rinse_ToggleSound()
@@ -723,7 +753,8 @@ function Rinse_ToggleDirection()
     UpdateDirection()
 end
 
-local function UpdateNumButtons(num)
+local function UpdateNumButtons()
+    local num = RINSE_CONFIG.BUTTONS
     RinseDebuffsFrame:SetHeight(num * 42)
     if num > BUTTONS_MAX then
         -- Adding buttons
@@ -755,7 +786,7 @@ end
 function RinseOptionsFrameButtonsSlider_OnValueChanged()
     local numButtons = tonumber(format("%d", this:GetValue()))
     RINSE_CONFIG.BUTTONS = numButtons
-    UpdateNumButtons(numButtons)
+    UpdateNumButtons()
     getglobal(this:GetName().."Text"):SetText("Debuffs shown ("..numButtons..")")
 end
 
@@ -789,6 +820,10 @@ function RinseFrame_OnLoad()
     RinseFrame:RegisterEvent("RAID_ROSTER_UPDATE")
     RinseFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
     RinseFrame:RegisterEvent("SPELLS_CHANGED")
+    if GetNampowerVersion then
+        -- Announce queued decurses
+        RinseFrame:RegisterEvent("SPELL_QUEUE_EVENT")
+    end
 end
 
 local function GoodUnit(unit)
@@ -815,6 +850,7 @@ function RinseFrame_OnEvent()
         RINSE_CONFIG.WYVERN_STING = RINSE_CONFIG.WYVERN_STING == nil and false or RINSE_CONFIG.WYVERN_STING
         RINSE_CONFIG.MUTATING_INJECTION = RINSE_CONFIG.MUTATING_INJECTION == nil and false or RINSE_CONFIG.MUTATING_INJECTION
         RINSE_CONFIG.PRINT = RINSE_CONFIG.PRINT == nil and true or RINSE_CONFIG.PRINT
+        RINSE_CONFIG.MSBT = RINSE_CONFIG.MSBT == nil and true or RINSE_CONFIG.MSBT
         RINSE_CONFIG.SOUND = RINSE_CONFIG.SOUND == nil and true or RINSE_CONFIG.SOUND
         RINSE_CONFIG.LOCK = RINSE_CONFIG.LOCK == nil and false or RINSE_CONFIG.LOCK
         RINSE_CONFIG.BACKDROP = RINSE_CONFIG.BACKDROP == nil and true or RINSE_CONFIG.BACKDROP
@@ -835,19 +871,51 @@ function RinseFrame_OnEvent()
         RinseOptionsFrameWyvernSting:SetChecked(RINSE_CONFIG.WYVERN_STING)
         RinseOptionsFrameMutatingInjection:SetChecked(RINSE_CONFIG.MUTATING_INJECTION)
         RinseOptionsFramePrint:SetChecked(RINSE_CONFIG.PRINT)
+        RinseOptionsFrameMSBT:SetChecked(RINSE_CONFIG.MSBT)
         RinseOptionsFrameSound:SetChecked(RINSE_CONFIG.SOUND)
         RinseOptionsFrameLock:SetChecked(RINSE_CONFIG.LOCK)
         RinseOptionsFrameBackdrop:SetChecked(RINSE_CONFIG.BACKDROP)
         RinseOptionsFrameShowHeader:SetChecked(RINSE_CONFIG.SHOW_HEADER)
         RinseOptionsFrameFlip:SetChecked(RINSE_CONFIG.FLIP)
         RinseOptionsFrameButtonsSlider:SetValue(RINSE_CONFIG.BUTTONS)
+        if Spells[playerClass].Poison then
+            EnableCheckBox(RinseOptionsFrameWyvernSting)
+        else
+            DisableCheckBox(RinseOptionsFrameWyvernSting)
+        end
+        if Spells[playerClass].Disease then
+            EnableCheckBox(RinseOptionsFrameMutatingInjection)
+        else
+            DisableCheckBox(RinseOptionsFrameMutatingInjection)
+        end
+        if RINSE_CONFIG.PRINT and MikSBT then
+            EnableCheckBox(RinseOptionsFrameMSBT)
+        else
+            DisableCheckBox(RinseOptionsFrameMSBT)
+        end
         UpdateBackdrop()
         UpdateFramesScale()
         UpdateDirection()
-        UpdateNumButtons(RINSE_CONFIG.BUTTONS)
+        UpdateNumButtons()
         UpdateHeader()
         UpdateSpells()
         UpdatePrio()
+    elseif event == "SPELL_QUEUE_EVENT" then
+        if RINSE_CONFIG.PRINT then
+            -- arg1 is eventCode, arg2 is spellId
+            -- NORMAL_QUEUE_POPPED = 3
+            if arg1 == 3 then
+                local spellName = GetSpellNameAndRankForId(arg2)
+                if lastSpellName and lastButton and lastSpellName == spellName then
+                    -- If button unit no longer set, don't print
+                    if not lastButton.unit or lastButton.unit == "" then
+                        return
+                    end
+                    local debuff = getglobal(lastButton:GetName().."Name"):GetText()
+                    ChatMessage(DebuffColor[lastButton.type].hex..debuff.."|r - "..ClassColors[lastButton.unitClass]..UnitName(lastButton.unit).."|r")
+                end
+            end
+        end
     elseif event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" then
         needUpdatePrio = true
         prioTimer = 2
@@ -1021,53 +1089,51 @@ end
 
 function Rinse_Cleanse(button, attemptedCast)
     local button = button or this
-
     if not button.unit or button.unit == "" then
         return false
     end
-
     local debuff = getglobal(button:GetName().."Name"):GetText()
     local spellName = SpellNameToRemove[button.type]
     local spellSlot = SpellSlotForName[spellName]
-
-    -- allow attempting 1 spell even if gcd active so that it can be queued
-    if attemptedCast then
-        -- check if on gcd
-        local _, duration, _ = GetSpellCooldown(spellSlot, bookType)
-        -- if gcd active this will return 1.5 for all the relevant spells
-        if duration == 1.5 then
-            -- don't bother trying to cast
-            return false
-        end
+    local onGcd = false
+    -- Check if on gcd
+    local _, duration = GetSpellCooldown(spellSlot, bookType)
+    -- If gcd active this will return 1.5 for all the relevant spells
+    if duration == 1.5 then
+        onGcd = true
     end
-
+    -- Allow attempting 1 spell even if gcd active so that it can be queued
+    if attemptedCast and onGcd then
+        -- Otherwise don't bother trying to cast
+        return false
+    end
     if not InRange(button.unit, spellName) then
-        ChatMessage(ClassColors[button.unitClass]..UnitName(button.unit).."|r is out of range.")
         if errorCooldown <= 0 then
             playsound(errorSound)
             errorCooldown = 0.1
         end
         return false
     end
-
     local castingInterruptableSpell = true
-
-    -- if nampower available, check if we are actually casting something
+    -- If nampower available, check if we are actually casting something
     -- to avoid needlessly calling SpellStopCasting and wiping spell queue
     if GetCurrentCastingInfo then
-        local _, _, _, casting, channeling = GetCurrentCastingInfo();
+        local _, _, _, casting, channeling = GetCurrentCastingInfo()
         if casting == 0 and channeling == 0 then
             castingInterruptableSpell = false
         end
     end
-
     if castingInterruptableSpell and stopCastCooldown <= 0 then
         SpellStopCasting()
         stopCastCooldown = 0.2
     end
-
-    ChatMessage("Trying To Remove " .. DebuffColor[button.type].hex .. debuff .. "|r from " .. ClassColors[button.unitClass] .. UnitName(button.unit) .. "|r")
-
+    if not onGcd then
+        ChatMessage(DebuffColor[button.type].hex..debuff.."|r - "..ClassColors[button.unitClass]..UnitName(button.unit).."|r")
+    else
+        -- Save spellId, spellName and target so we can output chat message if it was queued
+        lastSpellName = spellName
+        lastButton = button
+    end
     if superwow then
         CastSpellByName(spellName, button.unit)
     else
@@ -1083,15 +1149,13 @@ function Rinse_Cleanse(button, attemptedCast)
             SetCVar("autoselfcast", 1)
         end
     end
-
     return true
 end
 
 function Rinse()
     local attemptedCast = false
-
     for i = 1, BUTTONS_MAX do
-        if Rinse_Cleanse(getglobal("RinseFrameDebuff" .. i), attemptedCast) then
+        if Rinse_Cleanse(getglobal("RinseFrameDebuff"..i), attemptedCast) then
             attemptedCast = true
         end
     end
@@ -1107,5 +1171,7 @@ SlashCmdList["RINSE"] = function(cmd)
         RinseFrameSkipList_OnClick()
     elseif cmd == "prio" then
         RinseFramePrioList_OnClick()
+    else
+        ChatFrame1:AddMessage(BLUE.."[Rinse]|r Unknown command. Use /rinse, /rinse options, /rinse skip or /rinse prio.")
     end
 end
