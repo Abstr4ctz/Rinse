@@ -71,6 +71,7 @@ DebuffColor["Magic"]   = { r = 0.2, g = 0.6, b = 1.0, hex = "|cff3399FF" }
 DebuffColor["Curse"]   = { r = 0.6, g = 0.0, b = 1.0, hex = "|cff9900FF" }
 DebuffColor["Disease"] = { r = 0.6, g = 0.4, b = 0.0, hex = "|cff996600" }
 DebuffColor["Poison"]  = { r = 0.0, g = 0.6, b = 0.0, hex = "|cff009900" }
+DebuffColor["Snare"] = { r = 1.0, g = 0.84, b = 0.0, hex = "|cffFFD700" }
 
 local BLUE = DebuffColor["Magic"].hex
 
@@ -85,9 +86,21 @@ Spells["WARLOCK"] = { Magic = {"Devour Magic"} }
 Spells["WARRIOR"] = {}
 Spells["ROGUE"]   = {}
 Spells["HUNTER"]  = {}
+
+local NamedSpells = {}
+NamedSpells["PALADIN"] = {
+    ["Hand of Freedom"] = {
+        pseudoType = "Snare",
+        debuffs = { "Hamstring", "Mind Flay", "Surge of Mana", "Web" }
+    }
+}
+
 -- Spells that we have
 -- SpellNameToRemove[debuffType] = "spellName"
 local SpellNameToRemove = {}
+
+-- DebuffNameToSpellInfo[debuffName] = { spell = "Spell Name", type = "pseudoType" }
+local DebuffNameToSpellInfo = {}
 
 -- SpellSlotForName[spellName] = spellSlot
 local SpellSlotForName = {}
@@ -113,7 +126,8 @@ for i = 1, DEBUFFS_MAX do
 		unit = "",
 		unitName = "",
 		unitClass = "",
-		shown = false
+		shown = false,
+        spell = ""
 	}
 end
 
@@ -210,6 +224,7 @@ DefaultFilter["Magic"] = Spells[playerClass].Magic == nil
 DefaultFilter["Disease"] = Spells[playerClass].Disease == nil
 DefaultFilter["Poison"] = Spells[playerClass].Poison == nil
 DefaultFilter["Curse"] = Spells[playerClass].Curse == nil
+DefaultFilter["Snare"] = playerClass ~= "PALADIN"
 
 local Filter = {}
 for k, v in pairs(DefaultFilter) do
@@ -636,10 +651,16 @@ if playerClass == "WARLOCK" then
 end
 
 local function UpdateSpells()
-	if not Spells[playerClass] then
+	if not Spells[playerClass] and not NamedSpells[playerClass] then
 		return
 	end
-	if not (playerClass == "PALADIN" and RINSE_CHAR_CONFIG.FILTER.Magic) then
+
+	wipelist(SpellNameToRemove)
+	wipelist(DebuffNameToSpellInfo)
+	wipelist(SpellSlotForName)
+
+	-- Part 1: Handle type-based spells
+	if Spells[playerClass] and not (playerClass == "PALADIN" and RINSE_CHAR_CONFIG.FILTER.Magic) then
 		local found = false
 		for tab = 1, GetNumSpellTabs() do
 			local _, _, offset, numSpells = GetSpellTabInfo(tab)
@@ -656,19 +677,44 @@ local function UpdateSpells()
 				end
 			end
 		end
-		if found then
-			return
+		if not found then
+			for tab = 1, GetNumSpellTabs() do
+				local _, _, offset, numSpells = GetSpellTabInfo(tab)
+				for s = offset + 1, offset + numSpells do
+					local spell = GetSpellName(s, bookType)
+					if spell then
+						for dispelType, v in pairs(Spells[playerClass]) do
+							if v[2] and v[2] == spell then
+								SpellNameToRemove[dispelType] = spell
+								SpellSlotForName[spell] = s
+							end
+						end
+					end
+				end
+			end
 		end
 	end
-	for tab = 1, GetNumSpellTabs() do
-		local _, _, offset, numSpells = GetSpellTabInfo(tab)
-		for s = offset + 1, offset + numSpells do
-			local spell = GetSpellName(s, bookType)
-			if spell then
-				for dispelType, v in pairs(Spells[playerClass]) do
-					if v[2] and v[2] == spell then
-						SpellNameToRemove[dispelType] = spell
-						SpellSlotForName[spell] = s
+
+	-- Part 2: Handle name-based spells
+	if NamedSpells[playerClass] then
+		local spellsToFind = {}
+		for spellName in pairs(NamedSpells[playerClass]) do
+			spellsToFind[spellName] = true
+		end
+
+		for tab = 1, GetNumSpellTabs() do
+			local _, _, offset, numSpells = GetSpellTabInfo(tab)
+			for s = offset + 1, offset + numSpells do
+				local spellInBook = GetSpellName(s, bookType)
+				if spellInBook and spellsToFind[spellInBook] then
+					local spellInfo = NamedSpells[playerClass][spellInBook]
+					SpellSlotForName[spellInBook] = s
+					
+					for _, debuffName in pairs(spellInfo.debuffs) do
+						DebuffNameToSpellInfo[debuffName] = {
+							spell = spellInBook,
+							type = spellInfo.pseudoType
+						}
 					end
 				end
 			end
@@ -999,6 +1045,7 @@ function RinseFrame_OnEvent()
 			Disease = Spells[playerClass].Disease == nil,
 			Poison = Spells[playerClass].Poison == nil,
 			Curse = Spells[playerClass].Curse == nil,
+			Snare = playerClass ~= "PALADIN",
 		}
 		RinseFrame:ClearAllPoints()
 		RinseFrame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", RINSE_CONFIG.POSITION.x, RINSE_CONFIG.POSITION.y)
@@ -1029,7 +1076,7 @@ function RinseFrame_OnEvent()
 		RinseOptionsFrameFilterPoison:SetChecked(not Filter.Poison)
 		RinseOptionsFrameFilterCurse:SetChecked(not Filter.Curse)
 		for k in pairs(DebuffColor) do
-			if k ~= "none" then
+			if k ~= "none" and k ~= "Snare" then
 				local checkBox = _G["RinseOptionsFrameFilter"..k]
 				if Spells[playerClass] and Spells[playerClass][k] then
 					EnableCheckBox(checkBox)
@@ -1039,6 +1086,15 @@ function RinseFrame_OnEvent()
 				end
 			end
 		end
+
+		RinseOptionsFrameFilterSnare:SetChecked(not Filter.Snare)
+		if NamedSpells[playerClass] and NamedSpells[playerClass]["Hand of Freedom"] then
+			EnableCheckBox(RinseOptionsFrameFilterSnare)
+		else
+			DisableCheckBox(RinseOptionsFrameFilterSnare)
+			RinseOptionsFrameFilterSnare.tooltipRequirement = "Not available to your class."
+		end
+
 		if Spells[playerClass] and Spells[playerClass].Poison then
 			EnableCheckBox(RinseOptionsFrameWyvernSting)
 		else
@@ -1118,21 +1174,6 @@ local function GetDebuffInfo(unit, i)
 	return debuffType, debuffName, texture, applications
 end
 
-local function SaveDebuffInfo(unit, debuffIndex, i, class, debuffType, debuffName, texture, applications)
-	if SpellNameToRemove[debuffType] and (RINSE_CONFIG.IGNORE_ABOLISH or not HasAbolish(unit, debuffType)) then
-		Debuffs[debuffIndex].name = debuffName or ""
-		Debuffs[debuffIndex].type = debuffType or ""
-		Debuffs[debuffIndex].texture = texture or ""
-		Debuffs[debuffIndex].stacks = applications or 0
-		Debuffs[debuffIndex].unit = unit
-		Debuffs[debuffIndex].unitName = UnitName(unit) or ""
-		Debuffs[debuffIndex].unitClass = class or ""
-		Debuffs[debuffIndex].debuffIndex = i
-		return true
-	end
-	return false
-end
-
 function RinseFrame_OnUpdate(elapsed)
 	timeElapsed = timeElapsed + elapsed
 	errorCooldown = (errorCooldown > 0) and (errorCooldown - elapsed) or 0
@@ -1146,7 +1187,6 @@ function RinseFrame_OnUpdate(elapsed)
 		return
 	end
 	timeElapsed = 0
-	-- Clear debuffs info
 	for i = 1, DEBUFFS_MAX do
 		Debuffs[i].name = ""
 		Debuffs[i].type = ""
@@ -1157,10 +1197,9 @@ function RinseFrame_OnUpdate(elapsed)
 		Debuffs[i].unitClass = ""
 		Debuffs[i].shown = false
 		Debuffs[i].debuffIndex = 0
+		Debuffs[i].spell = ""
 	end
 	local debuffIndex = 1
-	-- Get new info
-	-- Target is highest prio
 	if GoodUnit("target") then
 		local _, class = UnitClass("target")
 		local i = 1
@@ -1169,15 +1208,36 @@ function RinseFrame_OnUpdate(elapsed)
 			if not texture then
 				break
 			end
-			if debuffType and debuffName and class then
-				if SaveDebuffInfo("target", debuffIndex, i, class, debuffType, debuffName, texture, applications) then
-					debuffIndex = debuffIndex + 1
+			if debuffName and class then
+				local spellToUse = nil
+				local displayType = debuffType
+
+				if debuffType and SpellNameToRemove[debuffType] then
+					spellToUse = SpellNameToRemove[debuffType]
+				elseif DebuffNameToSpellInfo[debuffName] then
+					spellToUse = DebuffNameToSpellInfo[debuffName].spell
+					displayType = DebuffNameToSpellInfo[debuffName].type
+				end
+				
+				if spellToUse then
+					local debuffIsAbolished = (debuffType == "Poison" or debuffType == "Disease") and HasAbolish("target", debuffType)
+					if RINSE_CONFIG.IGNORE_ABOLISH or not debuffIsAbolished then
+						Debuffs[debuffIndex].name = debuffName
+						Debuffs[debuffIndex].type = displayType or "none" -- Use displayType for color
+						Debuffs[debuffIndex].texture = texture
+						Debuffs[debuffIndex].stacks = applications or 0
+						Debuffs[debuffIndex].unit = "target"
+						Debuffs[debuffIndex].unitName = UnitName("target")
+						Debuffs[debuffIndex].unitClass = class
+						Debuffs[debuffIndex].debuffIndex = i
+						Debuffs[debuffIndex].spell = spellToUse -- Store the spell to use
+						debuffIndex = debuffIndex + 1
+					end
 				end
 			end
 			i = i + 1
 		end
 	end
-	-- Scan units in Prio array
 	for index = 1, getn(Prio) do
 		local unit = Prio[index]
 		if GoodUnit(unit) and not UnitIsUnit("target", unit) then
@@ -1188,16 +1248,37 @@ function RinseFrame_OnUpdate(elapsed)
 				if not texture then
 					break
 				end
-				if debuffType and debuffName and class then
-					if SaveDebuffInfo(unit, debuffIndex, i, class, debuffType, debuffName, texture, applications) then
-						debuffIndex = debuffIndex + 1
+				if debuffName and class then
+					local spellToUse = nil
+					local displayType = debuffType
+
+					if debuffType and SpellNameToRemove[debuffType] then
+						spellToUse = SpellNameToRemove[debuffType]
+					elseif DebuffNameToSpellInfo[debuffName] then
+						spellToUse = DebuffNameToSpellInfo[debuffName].spell
+						displayType = DebuffNameToSpellInfo[debuffName].type
+					end
+					
+					if spellToUse then
+						local debuffIsAbolished = (debuffType == "Poison" or debuffType == "Disease") and HasAbolish(unit, debuffType)
+						if RINSE_CONFIG.IGNORE_ABOLISH or not debuffIsAbolished then
+							Debuffs[debuffIndex].name = debuffName
+							Debuffs[debuffIndex].type = displayType or "none"
+							Debuffs[debuffIndex].texture = texture
+							Debuffs[debuffIndex].stacks = applications or 0
+							Debuffs[debuffIndex].unit = unit
+							Debuffs[debuffIndex].unitName = UnitName(unit)
+							Debuffs[debuffIndex].unitClass = class
+							Debuffs[debuffIndex].debuffIndex = i
+							Debuffs[debuffIndex].spell = spellToUse -- Store the spell to use
+							debuffIndex = debuffIndex + 1
+						end
 					end
 				end
 				i = i + 1
 			end
 		end
 	end
-	-- Find blacklisted debuffs, if found, mark all debuffs of the same type of that unit as shown
 	for k, v in pairs(Debuffs) do
 		if Blacklist[v.name] or (ClassBlacklist[v.unitClass] and ClassBlacklist[v.unitClass][v.name]) then
 			for k2, v2 in pairs(Debuffs) do
@@ -1207,7 +1288,6 @@ function RinseFrame_OnUpdate(elapsed)
 			end
 		end
 	end
-	-- Don't show diseases in Shadowform
 	if shadowform and RINSE_CONFIG.SHADOWFORM then
 		for k, v in pairs(Debuffs) do
 			if v.type == "Disease" then
@@ -1215,13 +1295,11 @@ function RinseFrame_OnUpdate(elapsed)
 			end
 		end
 	end
-	-- Find player defined debuffs that should be hidden
 	for k, v in pairs(Debuffs) do
 		if Filter[v.name] or Filter[v.type] then
 			v.shown = true
 		end
 	end
-	-- Hide all buttons
 	for i = 1, BUTTONS_MAX do
 		local btn = _G["RinseFrameDebuff"..i]
 		btn:Hide()
@@ -1229,7 +1307,6 @@ function RinseFrame_OnUpdate(elapsed)
 	end
 	debuffIndex = 1
 	for buttonIndex = 1, BUTTONS_MAX do
-		-- Find next debuff to show
 		while debuffIndex < DEBUFFS_MAX and Debuffs[debuffIndex].shown ~= false do
 			debuffIndex = debuffIndex + 1
 		end
@@ -1255,19 +1332,19 @@ function RinseFrame_OnUpdate(elapsed)
 			button.unitClass = class
 			button.type = debuffType
 			button.debuffIndex = Debuffs[debuffIndex].debuffIndex
+			button.spell = Debuffs[debuffIndex].spell
 			button:Show()
 			if buttonIndex == 1 and playNoticeSound then
 				playsound(noticeSound)
 				playNoticeSound = false
 			end
 			Debuffs[debuffIndex].shown = true
-			-- Don't show other debuffs from the same unit
 			for i in pairs(Debuffs) do
 				if Debuffs[i].unitName == unitName then
 					Debuffs[i].shown = true
 				end
 			end
-			if not InRange(unit, SpellNameToRemove[button.type]) then
+			if not InRange(unit, button.spell) then
 				button:SetAlpha(0.5)
 			else
 				button:SetAlpha(1)
@@ -1285,18 +1362,18 @@ function Rinse_Cleanse(button, attemptedCast)
 		return false
 	end
 	local debuff = _G[button:GetName().."Name"]:GetText()
-	local spellName = SpellNameToRemove[button.type]
+	local spellName = button.spell
+	if not spellName then
+		return false
+	end
+
 	local spellSlot = SpellSlotForName[spellName]
 	local onGcd = false
-	-- Check if on gcd
 	local _, duration = GetSpellCooldown(spellSlot, bookType)
-	-- If gcd active this will return 1.5 for all the relevant spells
 	if duration == 1.5 then
 		onGcd = true
 	end
-	-- Allow attempting 1 spell even if gcd active so that it can be queued
 	if attemptedCast and onGcd then
-		-- Otherwise don't bother trying to cast
 		return false
 	end
 	if not InRange(button.unit, spellName) then
@@ -1307,8 +1384,6 @@ function Rinse_Cleanse(button, attemptedCast)
 		return false
 	end
 	local castingInterruptableSpell = true
-	-- If nampower available, check if we are actually casting something
-	-- to avoid needlessly calling SpellStopCasting and wiping spell queue
 	if GetCurrentCastingInfo then
 		local _, _, _, casting, channeling = GetCurrentCastingInfo()
 		if casting == 0 and channeling == 0 then
@@ -1322,7 +1397,6 @@ function Rinse_Cleanse(button, attemptedCast)
 	if not onGcd then
 		ChatMessage(DebuffColor[button.type].hex..debuff.."|r - "..ClassColors[button.unitClass]..UnitName(button.unit).."|r")
 	else
-		-- Save spellId, spellName and target so we can output chat message if it was queued
 		lastSpellName = spellName
 		lastButton = button
 	end
@@ -1567,7 +1641,9 @@ StaticPopupDialogs["RINSE_ADD_TO_BLACKLIST"] = {
 function RinseOptionsScrollFrameButton_OnClick()
 	local text = this:GetText()
 	if DebuffColor[text] and text ~= "none" and Spells[playerClass][text] == nil then
-		return
+        if text ~= "Snare" then
+		    return
+        end
 	end
 	local buttonType = gsub(gsub(this:GetName(), "^RinseOptions", ""), "Button%d+$", "")
 	local scrollFrame = "RinseOptionsFrame"..buttonType.."ScrollFrame"
@@ -1637,7 +1713,11 @@ function RinseOptionsFrameResetFilter_OnClick()
 	for k, v in pairs(DefaultFilter) do
 		Filter[k] = v
 		if _G["RinseOptionsFrameFilter"..k] then
-			RINSE_CHAR_CONFIG.FILTER[k] = Spells[playerClass][k] == nil
+			if k == "Snare" then
+				RINSE_CHAR_CONFIG.FILTER[k] = playerClass ~= "PALADIN"
+			else
+				RINSE_CHAR_CONFIG.FILTER[k] = Spells[playerClass][k] == nil
+			end
 			_G["RinseOptionsFrameFilter"..k]:SetChecked(not v)
 		end
 	end
